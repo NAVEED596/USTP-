@@ -1,0 +1,61 @@
+module vending_machine (
+    input wire clk,
+    input wire rst_n,
+    input wire nickel,
+    input wire dime,
+    output reg dispense,
+    output reg change
+);
+    localparam S_0_CENTS  = 3'b000,
+               S_5_CENTS  = 3'b001,
+               S_10_CENTS = 3'b010,
+               S_15_CENTS = 3'b011,
+               S_20_CENTS = 3'b100;
+    reg [2:0] state;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state    <= S_0_CENTS;
+            dispense <= 1'b0;
+            change   <= 1'b0;
+        end else begin
+            case (state)
+                S_0_CENTS: begin
+                    dispense <= 1'b0;
+                    change   <= 1'b0;
+                    if (nickel)       state <= S_5_CENTS;
+                    else if (dime)    state <= S_10_CENTS;
+                    else              state <= S_0_CENTS;
+                end
+                S_5_CENTS: begin
+                    dispense <= 1'b0;
+                    change   <= 1'b0;
+                    if (nickel)       state <= S_10_CENTS;
+                    else if (dime)    state <= S_15_CENTS;
+                    else              state <= S_5_CENTS;
+                end
+                S_10_CENTS: begin
+                    dispense <= 1'b0;
+                    change   <= 1'b0;
+                    if (nickel)       state <= S_15_CENTS;
+                    else if (dime)    state <= S_20_CENTS;
+                    else              state <= S_10_CENTS;
+                end
+                S_15_CENTS: begin
+                    dispense <= 1'b1;
+                    change   <= 1'b0;
+                    state    <= S_0_CENTS;
+                end
+                S_20_CENTS: begin
+                    dispense <= 1'b1;
+                    change   <= 1'b1;
+                    state    <= S_0_CENTS;
+                end
+                default: begin
+                    state    <= S_0_CENTS;
+                    dispense <= 1'b0;
+                    change   <= 1'b0;
+                end
+            endcase
+        end
+    end
+endmodule

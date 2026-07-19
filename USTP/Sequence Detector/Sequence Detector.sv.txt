@@ -1,0 +1,62 @@
+module sequence_detector_1101 (
+    input wire clk,
+    input wire rst_n,
+    input wire sequence_in,
+    output reg detector_out
+);
+
+    // State encoding
+    localparam S_RESET = 3'b000,
+               S_1     = 3'b001,
+               S_11    = 3'b010,
+               S_110   = 3'b011,
+               S_1101  = 3'b100;
+
+    reg [2:0] state;
+
+    // Single synchronous block for state transitions and output
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state        <= S_RESET;
+            detector_out <= 1'b0;
+        end else begin
+            case (state)
+                S_RESET: begin
+                    detector_out <= 1'b0;
+                    if (sequence_in) state <= S_1;
+                    else             state <= S_RESET;
+                end
+
+                S_1: begin
+                    detector_out <= 1'b0;
+                    if (sequence_in) state <= S_11;
+                    else             state <= S_RESET;
+                end
+
+                S_11: begin
+                    detector_out <= 1'b0;
+                    if (sequence_in) state <= S_11;
+                    else             state <= S_110;
+                end
+
+                S_110: begin
+                    detector_out <= 1'b0;
+                    if (sequence_in) state <= S_1101;
+                    else             state <= S_RESET;
+                end
+
+                S_1101: begin
+                    detector_out <= 1'b1; // Output is high in this state (Moore)
+                    if (sequence_in) state <= S_1; // Non-overlapping transition
+                    else             state <= S_RESET;
+                end
+
+                default: begin
+                    state        <= S_RESET;
+                    detector_out <= 1'b0;
+                end
+            endcase
+        end
+    end
+
+endmodule
