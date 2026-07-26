@@ -1,0 +1,100 @@
+module address_calculator ( 
+    input [4:0] x,     input [4:0] y,     output [9:0] addr 
+); 
+    // Simple math: y * 32 + x     assign addr = (y * 32) + x; 
+endmodule 
+ 
+ 
+// Simple SRAM module sram_memory ( 
+    input clk, 
+    input we,     input [9:0] addr,     input din,     output reg dout 
+); 
+    // 1024 bits memory array     reg mem [0:1023]; 
+ 
+    always @(posedge clk) begin         if (we == 1) begin             mem[addr] <= din;         end 
+        dout <= mem[addr]; 
+    end 
+endmodule 
+ 
+ 
+// Simple VGA Controller module vga_controller ( 
+    input clk,     input reset,     output reg hsync,     output reg vsync,     output reg [9:0] h_cnt,     output reg [9:0] v_cnt,     output reg video_on 
+); 
+ 
+    // Horizontal counter 
+    always @(posedge clk or posedge reset) begin 
+        if (reset) begin             h_cnt <= 0;         end else begin             if (h_cnt == 799)                 h_cnt <= 0;             else 
+                h_cnt <= h_cnt + 1;         end     end 
+ 
+    // Vertical counter     always @(posedge clk or posedge reset) begin 
+        if (reset) begin             v_cnt <= 0;         end else begin             if (h_cnt == 799) begin                 if (v_cnt == 524)                     v_cnt <= 0;                 else 
+                    v_cnt <= v_cnt + 1;             end         end     end 
+ 
+    // Hsync and Vsync signals     always @(posedge clk) begin         if (h_cnt >= 656 && h_cnt < 752)             hsync <= 0; 
+        else             hsync <= 1; 
+ 
+        if (v_cnt >= 490 && v_cnt < 492)             vsync <= 0;         else             vsync <= 1; 
+             
+        if (h_cnt < 640 && v_cnt < 480)             video_on <= 1; 
+        else             video_on <= 0;     end 
+ 
+endmodule 
+ 
+ 
+// Display Generator module display_generator ( 
+    input video_on, 
+    input pixel,     output reg [3:0] r,     output reg [3:0] g,     output reg [3:0] b 
+); 
+    always @(*) begin         if (video_on == 1 && pixel == 1) begin             r = 4'b1111; // White pixel             g = 4'b1111; 
+            b = 4'b1111;         end else begin             r = 4'b0000; // Black background 
+            g = 4'b0000;             b = 4'b0000;         end     end 
+endmodule 
+ 
+ 
+// Top Module module top_vga_sram_system ( 
+    input clk,     input reset,     input we,     input [4:0] x_in,     input [4:0] y_in,     input din,     output hsync,     output vsync,     output [3:0] red,     output [3:0] green,     output [3:0] blue 
+); 
+ 
+    wire [9:0] w_addr;     wire [9:0] r_addr;     wire [9:0] final_addr;     wire [9:0] h_cnt; 
+    wire [9:0] v_cnt;     wire video_on;     wire pixel_data; 
+ 
+    // Calculate write address     address_calculator add1 ( 
+        .x(x_in), 
+        .y(y_in), 
+        .addr(w_addr) 
+    ); 
+ 
+    // Calculate read address (scaling down by dividing h_cnt and v_cnt by 16)     address_calculator add2 ( 
+        .x(h_cnt[8:4]), 
+        .y(v_cnt[8:4]), 
+        .addr(r_addr) 
+    ); 
+ 
+    // Mux for address     assign final_addr = (we == 1) ? w_addr : r_addr; 
+ 
+    // SRAM instance     sram_memory ram1 ( 
+        .clk(clk), 
+        .we(we), 
+        .addr(final_addr), 
+        .din(din), 
+        .dout(pixel_data) 
+    ); 
+ 
+    // VGA instance     vga_controller vga1 ( 
+        .clk(clk), 
+        .reset(reset), 
+        .hsync(hsync), 
+        .vsync(vsync), 
+        .h_cnt(h_cnt), 
+        .v_cnt(v_cnt), 
+        .video_on(video_on) 
+    ); 
+ 
+    // Display instance     display_generator disp1 (         .video_on(video_on), 
+        .pixel(pixel_data), 
+        .r(red), 
+        .g(green), 
+        .b(blue) 
+    ); 
+ 
+Endmodule 

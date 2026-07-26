@@ -1,0 +1,48 @@
+`timescale 1ns / 1ps 
+ 
+module tb_top_vga_sram_system; 
+ 
+    reg clk;     reg reset;     reg we;     reg [4:0] x_in;     reg [4:0] y_in;     reg din; 
+ 
+    wire hsync;     wire vsync;     wire [3:0] red;     wire [3:0] green;     wire [3:0] blue; 
+ 
+    // Connect Top Module     top_vga_sram_system uut ( 
+        .clk(clk), 
+        .reset(reset), 
+        .we(we), 
+        .x_in(x_in),         .y_in(y_in), 
+        .din(din), 
+        .hsync(hsync), 
+        .vsync(vsync), 
+        .red(red), 
+        .green(green), 
+        .blue(blue) 
+    ); 
+ 
+    // Simple Clock Generator     always begin 
+        #10 clk = ~clk; 
+    end 
+ 
+    initial begin         // Initialize         clk = 0;         reset = 1;         we = 0;         x_in = 0;         y_in = 0;         din = 0; 
+ 
+        // Reset system         #40;         reset = 0; 
+        #20; 
+ 
+        // Write Pixel 1 at (5, 5)         we = 1;         x_in = 5;         y_in = 5;         din = 1;         #20;         we = 0; 
+        $display("Wrote Pixel at (5,5)"); 
+ 
+        #20; 
+ 
+        // Write Pixel 2 at (10, 10)         we = 1; 
+        x_in = 10;         y_in = 10;         din = 1;         #20;         we = 0; 
+        $display("Wrote Pixel at (10,10)"); 
+ 
+        #20; 
+ 
+        // Write Pixel 3 at (15, 20)         we = 1;         x_in = 15;         y_in = 20;         din = 1;         #20;         we = 0; 
+        $display("Wrote Pixel at (15,20)"); 
+ 
+        // Wait to observe VGA scanning in simulation 
+        #5000;         $finish;     end 
+ 
+endmodule 
