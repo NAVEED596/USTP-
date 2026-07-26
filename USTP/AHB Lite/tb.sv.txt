@@ -1,0 +1,146 @@
+`timescale 1ns / 1ps
+
+module tb_ahb_slave;
+
+    reg         hclk;
+    reg         hresetn;
+    reg         hsel;
+    reg  [31:0] haddr;
+    reg         hwrite;
+    reg  [2:0]  hsize;
+    reg  [2:0]  hburst;
+    reg  [3:0]  hprot;
+    reg  [1:0]  htrans;
+    reg         hready;
+    reg         hmastlock;
+    reg  [31:0] hwdata;
+
+    wire        hreadyout;
+    wire        hresp;
+    wire [31:0] hrdata;
+
+    ahb_slave uut (
+        .hclk(hclk), 
+        .hresetn(hresetn), 
+        .hsel(hsel), 
+        .haddr(haddr), 
+        .hwrite(hwrite), 
+        .hsize(hsize), 
+        .hburst(hburst), 
+        .hprot(hprot), 
+        .htrans(htrans), 
+        .hready(hready), 
+        .hmastlock(hmastlock), 
+        .hwdata(hwdata), 
+        .hreadyout(hreadyout), 
+        .hresp(hresp), 
+        .hrdata(hrdata)
+    );
+
+    always #10 hclk = ~hclk;
+
+    initial begin
+        hclk = 0;
+        hresetn = 0;
+        hsel = 0;
+        haddr = 0;
+        hwrite = 0;
+        hsize = 3'b010;
+        hburst = 3'b000;
+        hprot = 0;
+        htrans = 2'b00;
+        hready = 1;
+        hmastlock = 0;
+        hwdata = 0;
+
+        #25;
+        hresetn = 1;
+        #20;
+
+        $display("[TB] Starting Single Write/Read Test...");
+        
+        @(posedge hclk);
+        hsel   = 1;
+        haddr  = 32'h0000_0010;
+        hwrite = 1;
+        hburst = 3'b000;
+        htrans = 2'b10;
+        
+        @(posedge hclk);
+        hwdata = 32'hDEAD_BEEF;
+        hwrite = 0;
+        haddr  = 32'h0000_0010;
+        
+        @(posedge hclk);
+        hsel   = 0;
+        htrans = 2'b00;
+        
+        @(posedge hclk);
+        if (hrdata === 32'hDEAD_BEEF) 
+            $display("[PASS] Single Write/Read successful! Data: %h", hrdata);
+        else 
+            $display("[FAIL] Single Read failed! Expected: DEAD_BEEF, Got: %h", hrdata);
+
+        #40;
+
+        $display("[TB] Starting Incrementing Burst (INCR4) Write Test...");
+        
+        @(posedge hclk);
+        hsel   = 1;
+        haddr  = 32'h0000_0020;
+        hwrite = 1;
+        hburst = 3'b001;
+        htrans = 2'b10;
+        
+        @(posedge hclk);
+        hwdata = 32'hAAAA_0001;
+        haddr  = 32'h0000_0024;
+        htrans = 2'b11;
+
+        @(posedge hclk);
+        hwdata = 32'hBBBB_0002;
+        haddr  = 32'h0000_0028;
+        
+        @(posedge hclk);
+        hwdata = 32'hCCCC_0003;
+        haddr  = 32'h0000_002C;
+
+        @(posedge hclk);
+        hwdata = 32'hDDDD_0004;
+        hsel   = 0;
+        htrans = 2'b00;
+
+        @(posedge hclk);
+        $display("[TB] Burst Write complete. Starting verification checks...");
+
+        read_verify(32'h0000_0020, 32'hAAAA_0001);
+        read_verify(32'h0000_0024, 32'hBBBB_0002);
+        read_verify(32'h0000_0028, 32'hCCCC_0003);
+        read_verify(32'h0000_002C, 32'hDDDD_0004);
+
+        $display("[TB] Simulation Completed.");
+        $finish;
+    end
+
+    task read_verify(input [31:0] addr, input [31:0] expected_data);
+        begin
+            @(posedge hclk);
+            hsel   = 1;
+            haddr  = addr;
+            hwrite = 0;
+            hburst = 3'b000;
+            htrans = 2'b10;
+            
+            @(posedge hclk);
+            hsel   = 0;
+            htrans = 2'b00;
+            
+            @(posedge hclk);
+            if (hrdata === expected_data)
+                $display("[PASS] Address %h matched expected data: %h", addr, hrdata);
+            else
+                $display("[FAIL] Address %h mismatch! Expected: %h, Got: %h", addr, expected_data, hrdata);
+        end
+    endtask
+
+endmodule

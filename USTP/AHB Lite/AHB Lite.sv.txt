@@ -1,0 +1,95 @@
+module ahb_slave(
+    input  wire        hclk,
+    input  wire        hresetn,
+    input  wire        hsel,
+    input  wire [31:0] haddr,
+    input  wire        hwrite,
+    input  wire [2:0]  hsize,
+    input  wire [2:0]  hburst,
+    input  wire [3:0]  hprot,
+    input  wire [1:0]  htrans,
+    input  wire        hready,
+    input  wire        hmastlock,
+    input  wire [31:0] hwdata,
+    output reg         hreadyout,
+    output reg         hresp,
+    output reg  [31:0] hrdata
+);
+
+    reg [31:0] mem [31:0];
+    reg [4:0]  waddr;
+    reg [4:0]  raddr;
+    reg [1:0]  state, next;
+    reg [2:0]  burst_reg;
+
+    localparam IDLE = 2'b00, S1 = 2'b01, S2 = 2'b10, S3 = 2'b11;
+
+    // FSM State Register
+    always @(posedge hclk or negedge hresetn) begin
+        if (!hresetn) state <= IDLE;
+        else          state <= next;
+    end
+
+    // Next State Logic
+    always @(*) begin
+        case (state)
+            IDLE: next = hsel ? S1 : IDLE;
+            S1: begin
+                if (hready) next = hwrite ? S2 : S3;
+                else        next = S1;
+            end
+            S2:   next = (hburst == 3'b000) ? (hsel ? S1 : IDLE) : S2;
+            S3:   next = (hburst == 3'b000) ? (hsel ? S1 : IDLE) : S3;
+            default: next = IDLE;
+        endcase
+    end
+
+    // Output and Address Generation Control Logic
+    always @(posedge hclk) begin
+        if (!hresetn) begin
+            hreadyout <= 1'b0;
+            hresp     <= 1'b0;
+            hrdata    <= 32'b0;
+            waddr     <= 5'b0;
+            raddr     <= 5'b0;
+            burst_reg <= 3'b0;
+        end else begin
+            case (next)
+                IDLE: begin
+                    hreadyout <= 1'b0;
+                    hresp     <= 1'b0;
+                end
+                S1: begin
+                    hreadyout <= 1'b0;
+                    hresp     <= 1'b0;
+                    waddr     <= haddr[6:2]; // Word-aligned indexing
+                    raddr     <= haddr[6:2];
+                    burst_reg <= hburst;
+                end
+                S2: begin
+                    hreadyout  <= 1'b1;
+                    hresp      <= 1'b0;
+                    mem[waddr] <= hwdata;
+                    case (burst_reg)
+                        3'b001, 3'b011, 3'b101, 3'b111: waddr <= waddr + 1'b1;
+                        3'b010: waddr <= (waddr < (raddr + 3))  ? waddr + 1'b1 : raddr;
+                        3'b100: waddr <= (waddr < (raddr + 7))  ? waddr + 1'b1 : raddr;
+                        3'b110: waddr <= (waddr < (raddr + 15)) ? waddr + 1'b1 : raddr;
+                    endcase
+                end
+                S3: begin
+                    hreadyout <= 1'b1;
+                    hresp     <= 1'b0;
+                    hrdata    <= mem[raddr];
+                    case (burst_reg)
+                        3'b001, 3'b011, 3'b101, 3'b111: raddr <= raddr + 1'b1;
+                        3'b010: raddr <= (raddr < (waddr + 3))  ? raddr + 1'b1 : waddr;
+                        3'b100: raddr <= (raddr < (waddr + 7))  ? raddr + 1'b1 : waddr;
+                        3'b110: raddr <= (raddr < (waddr + 15)) ? raddr + 1'b1 : waddr;
+                    endcase
+                end
+            endcase
+        end
+    end
+
+endmodule
