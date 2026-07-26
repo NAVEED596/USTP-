@@ -1,0 +1,47 @@
+module axi4_lite_master (     input wire aclk,     input wire aresetn, 
+ 
+    // WRITE ADDRESS CHANNEL 
+    output reg [3:0] m_axi_awaddr,     output reg       m_axi_awvalid,     input  wire      m_axi_awready,     // WRITE DATA CHANNEL 
+    output reg [31:0] m_axi_wdata,     output reg        m_axi_wvalid,     input  wire       m_axi_wready, 
+ 
+    // WRITE RESPONSE 
+    input  wire [1:0] m_axi_bresp,     input  wire       m_axi_bvalid,     output reg        m_axi_bready, 
+ 
+    // READ ADDRESS CHANNEL 
+    output reg [3:0] m_axi_araddr,     output reg       m_axi_arvalid,     input  wire      m_axi_arready, 
+ 
+    // READ DATA CHANNEL 
+    input  wire [31:0] m_axi_rdata,     input  wire [1:0]  m_axi_rresp,     input  wire        m_axi_rvalid,     output reg         m_axi_rready 
+); 
+ 
+    reg [3:0] state; 
+ 
+    localparam IDLE  = 0,                WRITE = 1, 
+               WRESP = 2, 
+               READ  = 3, 
+               RDATA = 4; 
+ 
+    always @(posedge aclk or negedge aresetn) begin         if (!aresetn) begin             state <= IDLE; 
+ 
+            m_axi_awvalid <= 0;             m_axi_wvalid  <= 0;             m_axi_bready  <= 0; 
+ 
+            m_axi_arvalid <= 0;             m_axi_rready  <= 0;         end else begin             case(state) 
+ 
+            IDLE: begin                 // Start WRITE                 m_axi_awaddr  <= 4'h0;                 m_axi_wdata   <= 32'hA5A5A5A5;                 m_axi_awvalid <= 1;                 m_axi_wvalid  <= 1;                 state <= WRITE;             end 
+ 
+            WRITE: begin 
+                if (m_axi_awready && m_axi_wready) begin                     m_axi_awvalid <= 0;                     m_axi_wvalid  <= 0; 
+                    m_axi_bready  <= 1;                     state <= WRESP;                 end             end 
+ 
+            WRESP: begin                 if (m_axi_bvalid) begin                     m_axi_bready <= 0; 
+ 
+                    // Start READ                     m_axi_araddr  <= 4'h0;                     m_axi_arvalid <= 1;                     state <= READ;                 end             end 
+ 
+            READ: begin                 if (m_axi_arready) begin                     m_axi_arvalid <= 0;                     m_axi_rready  <= 1;                     state <= RDATA;                 end             end 
+ 
+            RDATA: begin                 if (m_axi_rvalid) begin                     m_axi_rready <= 0;                     state <= IDLE; 
+                end             end 
+ 
+            endcase         end     end 
+ 
+endmodule 
