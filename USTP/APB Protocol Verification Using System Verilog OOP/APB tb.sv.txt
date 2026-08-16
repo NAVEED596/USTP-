@@ -1,0 +1,926 @@
+`timescale 1ns/1ps
+
+//============================================================
+// APB INTERFACE
+//============================================================
+interface apb_if(input logic pclk);
+
+    logic        presetn;
+    logic [31:0] paddr;
+    logic        psel;
+    logic        penable;
+    logic        pwrite;
+    logic [31:0] pwdata;
+
+    logic [31:0] prdata;
+    logic        pready;
+    logic        pslverr;
+
+endinterface
+
+
+
+//============================================================
+// APB TRANSACTION
+//============================================================
+class apb_transaction;
+
+    rand bit [31:0] addr;
+    rand bit        write;
+    rand bit [31:0] data;
+
+    bit [31:0] rdata;
+    bit        slverr;
+
+
+    //========================================================
+    // CONSTRUCTOR
+    //========================================================
+    function new(
+        bit [31:0] addr  = 32'h0,
+        bit        write = 1'b0,
+        bit [31:0] data  = 32'h0
+    );
+
+        this.addr  = addr;
+        this.write = write;
+        this.data  = data;
+
+    endfunction
+
+
+    //========================================================
+    // VIRTUAL FUNCTION
+    //========================================================
+    virtual function void display(string name = "TRANSACTION");
+
+        $display("[%0t] %s : ADDR=%h WRITE=%b DATA=%h RDATA=%h SLVERR=%b",
+                 $time,
+                 name,
+                 addr,
+                 write,
+                 data,
+                 rdata,
+                 slverr);
+
+    endfunction
+
+endclass
+
+
+
+//============================================================
+// WRITE TRANSACTION
+// INHERITANCE
+//============================================================
+class apb_write_transaction extends apb_transaction;
+
+    function new(
+        bit [31:0] addr = 32'h0,
+        bit [31:0] data = 32'h0
+    );
+
+        super.new(addr, 1'b1, data);
+
+    endfunction
+
+
+    // POLYMORPHISM
+    virtual function void display(string name = "WRITE");
+
+        $display("[%0t] %s : WRITE ADDR=%h DATA=%h SLVERR=%b",
+                 $time,
+                 name,
+                 addr,
+                 data,
+                 slverr);
+
+    endfunction
+
+endclass
+
+
+
+//============================================================
+// READ TRANSACTION
+// INHERITANCE
+//============================================================
+class apb_read_transaction extends apb_transaction;
+
+    function new(
+        bit [31:0] addr = 32'h0
+    );
+
+        super.new(addr, 1'b0, 32'h0);
+
+    endfunction
+
+
+    // POLYMORPHISM
+    virtual function void display(string name = "READ");
+
+        $display("[%0t] %s : READ ADDR=%h RDATA=%h SLVERR=%b",
+                 $time,
+                 name,
+                 addr,
+                 rdata,
+                 slverr);
+
+    endfunction
+
+endclass
+
+
+
+//============================================================
+// GENERATOR
+//============================================================
+class generator;
+
+    // Queue of transactions
+    apb_transaction gen_queue[$];
+
+
+    //========================================================
+    // CONSTRUCTOR
+    //========================================================
+    function new();
+
+    endfunction
+
+
+    //========================================================
+    // GENERATE TRANSACTIONS
+    //========================================================
+    task run();
+
+        apb_write_transaction wr;
+        apb_read_transaction  rd;
+
+
+        //====================================================
+        // WRITE 0xAAAA1111 TO ADDRESS 0x00
+        //====================================================
+        wr = new(32'h00000000, 32'hAAAA1111);
+        gen_queue.push_back(wr);
+
+
+        //====================================================
+        // WRITE 0xBBBB2222 TO ADDRESS 0x04
+        //====================================================
+        wr = new(32'h00000004, 32'hBBBB2222);
+        gen_queue.push_back(wr);
+
+
+        //====================================================
+        // READ ADDRESS 0x00
+        //====================================================
+        rd = new(32'h00000000);
+        gen_queue.push_back(rd);
+
+
+        //====================================================
+        // READ ADDRESS 0x04
+        //====================================================
+        rd = new(32'h00000004);
+        gen_queue.push_back(rd);
+
+
+        //====================================================
+        // INVALID WRITE 0x08
+        //====================================================
+        wr = new(32'h00000008, 32'hCCCC3333);
+        gen_queue.push_back(wr);
+
+
+        //====================================================
+        // INVALID READ 0x08
+        //====================================================
+        rd = new(32'h00000008);
+        gen_queue.push_back(rd);
+
+
+        //====================================================
+        // WRITE NEW VALUE TO 0x00
+        //====================================================
+        wr = new(32'h00000000, 32'h12345678);
+        gen_queue.push_back(wr);
+
+
+        //====================================================
+        // READ 0x00 AGAIN
+        //====================================================
+        rd = new(32'h00000000);
+        gen_queue.push_back(rd);
+
+
+        $display("");
+        $display("==============================================");
+        $display("GENERATOR: 8 TRANSACTIONS GENERATED");
+        $display("==============================================");
+        $display("");
+
+    endtask
+
+endclass
+
+
+
+//============================================================
+// DRIVER
+//============================================================
+class driver;
+
+    virtual apb_if vif;
+
+    apb_transaction gen_queue[$];
+
+
+    //========================================================
+    // CONSTRUCTOR
+    //========================================================
+    function new(
+        virtual apb_if vif
+    );
+
+        this.vif = vif;
+
+    endfunction
+
+
+    //========================================================
+    // RESET
+    //========================================================
+    task reset();
+
+        vif.presetn <= 1'b0;
+
+        vif.psel    <= 1'b0;
+        vif.penable <= 1'b0;
+        vif.pwrite  <= 1'b0;
+        vif.paddr   <= 32'h0;
+        vif.pwdata  <= 32'h0;
+
+        repeat(2)
+            @(posedge vif.pclk);
+
+        vif.presetn <= 1'b1;
+
+        @(posedge vif.pclk);
+
+        $display("[%0t] DRIVER: RESET COMPLETE", $time);
+
+    endtask
+
+
+    //========================================================
+    // DRIVE ONE TRANSACTION
+    //========================================================
+    task drive(apb_transaction tr);
+
+        //====================================================
+        // SETUP PHASE
+        //====================================================
+        @(posedge vif.pclk);
+
+        vif.psel    <= 1'b1;
+        vif.penable <= 1'b0;
+        vif.pwrite  <= tr.write;
+        vif.paddr   <= tr.addr;
+        vif.pwdata  <= tr.data;
+
+        $display("[%0t] DRIVER: SETUP ADDR=%h WRITE=%b DATA=%h",
+                 $time,
+                 tr.addr,
+                 tr.write,
+                 tr.data);
+
+
+        //====================================================
+        // ACCESS PHASE
+        //====================================================
+        @(posedge vif.pclk);
+
+        vif.penable <= 1'b1;
+
+        $display("[%0t] DRIVER: ACCESS ADDR=%h",
+                 $time,
+                 tr.addr);
+
+
+        //====================================================
+        // WAIT FOR READY
+        //====================================================
+        while (!vif.pready)
+            @(posedge vif.pclk);
+
+
+        //====================================================
+        // END TRANSACTION
+        //====================================================
+        @(posedge vif.pclk);
+
+        vif.psel    <= 1'b0;
+        vif.penable <= 1'b0;
+        vif.pwrite  <= 1'b0;
+        vif.paddr   <= 32'h0;
+        vif.pwdata  <= 32'h0;
+
+    endtask
+
+
+    //========================================================
+    // DRIVER RUN
+    //========================================================
+    task run();
+
+        apb_transaction tr;
+
+        foreach (gen_queue[i]) begin
+
+            tr = gen_queue[i];
+
+            drive(tr);
+
+        end
+
+
+        $display("");
+        $display("==============================================");
+        $display("DRIVER: ALL TRANSACTIONS COMPLETED");
+        $display("==============================================");
+        $display("");
+
+    endtask
+
+endclass
+
+
+
+//============================================================
+// MONITOR
+//============================================================
+class monitor;
+
+    virtual apb_if vif;
+
+    // Monitor queue
+    apb_transaction mon_queue[$];
+
+
+    //========================================================
+    // CONSTRUCTOR
+    //========================================================
+    function new(
+        virtual apb_if vif
+    );
+
+        this.vif = vif;
+
+    endfunction
+
+
+    //========================================================
+    // MONITOR RUN
+    //========================================================
+    task run();
+
+        apb_transaction tr;
+
+        forever begin
+
+            @(posedge vif.pclk);
+
+            if (vif.psel && vif.penable) begin
+
+                tr = new();
+
+                tr.addr   = vif.paddr;
+                tr.write  = vif.pwrite;
+                tr.data   = vif.pwdata;
+
+                tr.rdata  = vif.prdata;
+                tr.slverr = vif.pslverr;
+
+                mon_queue.push_back(tr);
+
+                tr.display("MONITOR");
+
+            end
+
+        end
+
+    endtask
+
+endclass
+
+
+
+//============================================================
+// SCOREBOARD
+//============================================================
+class scoreboard;
+
+    bit [31:0] expected_reg_00;
+    bit [31:0] expected_reg_04;
+
+    int pass_count;
+    int fail_count;
+
+
+    //========================================================
+    // CONSTRUCTOR
+    //========================================================
+    function new();
+
+        this.expected_reg_00 = 32'h0;
+        this.expected_reg_04 = 32'h0;
+
+        this.pass_count = 0;
+        this.fail_count = 0;
+
+    endfunction
+
+
+    //========================================================
+    // CHECK TRANSACTIONS
+    //========================================================
+    task run(
+        ref apb_transaction mon_queue[$]
+    );
+
+        apb_transaction tr;
+
+        // Wait until all 8 transactions are captured
+        wait(mon_queue.size() >= 8);
+
+
+        $display("");
+        $display("==============================================");
+        $display("SCOREBOARD: STARTING CHECK");
+        $display("==============================================");
+        $display("");
+
+
+        foreach (mon_queue[i]) begin
+
+            tr = mon_queue[i];
+
+
+            //================================================
+            // WRITE TRANSACTION
+            //================================================
+            if (tr.write) begin
+
+                case (tr.addr)
+
+                    //================================================
+                    // VALID WRITE TO 0x00
+                    //================================================
+                    32'h00000000: begin
+
+                        if (tr.slverr == 1'b0) begin
+
+                            expected_reg_00 = tr.data;
+
+                            $display(
+                                "[%0t] SCOREBOARD: WRITE 0x00 PASS DATA=%h",
+                                $time,
+                                tr.data
+                            );
+
+                            pass_count++;
+
+                        end
+                        else begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: WRITE 0x00 FAIL",
+                                $time
+                            );
+
+                            fail_count++;
+
+                        end
+
+                    end
+
+
+                    //================================================
+                    // VALID WRITE TO 0x04
+                    //================================================
+                    32'h00000004: begin
+
+                        if (tr.slverr == 1'b0) begin
+
+                            expected_reg_04 = tr.data;
+
+                            $display(
+                                "[%0t] SCOREBOARD: WRITE 0x04 PASS DATA=%h",
+                                $time,
+                                tr.data
+                            );
+
+                            pass_count++;
+
+                        end
+                        else begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: WRITE 0x04 FAIL",
+                                $time
+                            );
+
+                            fail_count++;
+
+                        end
+
+                    end
+
+
+                    //================================================
+                    // INVALID WRITE
+                    //================================================
+                    default: begin
+
+                        if (tr.slverr == 1'b1) begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: INVALID WRITE PASS ADDR=%h",
+                                $time,
+                                tr.addr
+                            );
+
+                            pass_count++;
+
+                        end
+                        else begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: INVALID WRITE FAIL ADDR=%h",
+                                $time,
+                                tr.addr
+                            );
+
+                            fail_count++;
+
+                        end
+
+                    end
+
+                endcase
+
+            end
+
+
+            //================================================
+            // READ TRANSACTION
+            //================================================
+            else begin
+
+                case (tr.addr)
+
+                    //================================================
+                    // READ 0x00
+                    //================================================
+                    32'h00000000: begin
+
+                        if ((tr.rdata == expected_reg_00) &&
+                            (tr.slverr == 1'b0)) begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: READ 0x00 PASS EXPECTED=%h ACTUAL=%h",
+                                $time,
+                                expected_reg_00,
+                                tr.rdata
+                            );
+
+                            pass_count++;
+
+                        end
+                        else begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: READ 0x00 FAIL EXPECTED=%h ACTUAL=%h",
+                                $time,
+                                expected_reg_00,
+                                tr.rdata
+                            );
+
+                            fail_count++;
+
+                        end
+
+                    end
+
+
+                    //================================================
+                    // READ 0x04
+                    //================================================
+                    32'h00000004: begin
+
+                        if ((tr.rdata == expected_reg_04) &&
+                            (tr.slverr == 1'b0)) begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: READ 0x04 PASS EXPECTED=%h ACTUAL=%h",
+                                $time,
+                                expected_reg_04,
+                                tr.rdata
+                            );
+
+                            pass_count++;
+
+                        end
+                        else begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: READ 0x04 FAIL EXPECTED=%h ACTUAL=%h",
+                                $time,
+                                expected_reg_04,
+                                tr.rdata
+                            );
+
+                            fail_count++;
+
+                        end
+
+                    end
+
+
+                    //================================================
+                    // INVALID READ
+                    //================================================
+                    default: begin
+
+                        if ((tr.rdata == 32'h0) &&
+                            (tr.slverr == 1'b1)) begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: INVALID READ PASS ADDR=%h",
+                                $time,
+                                tr.addr
+                            );
+
+                            pass_count++;
+
+                        end
+                        else begin
+
+                            $display(
+                                "[%0t] SCOREBOARD: INVALID READ FAIL ADDR=%h",
+                                $time,
+                                tr.addr
+                            );
+
+                            fail_count++;
+
+                        end
+
+                    end
+
+                endcase
+
+            end
+
+        end
+
+
+        //========================================================
+        // FINAL RESULT
+        //========================================================
+        $display("");
+        $display("==============================================");
+        $display("           SCOREBOARD RESULT");
+        $display("==============================================");
+        $display("PASS COUNT = %0d", pass_count);
+        $display("FAIL COUNT = %0d", fail_count);
+
+        if (fail_count == 0)
+            $display("RESULT     = ALL TESTS PASSED");
+        else
+            $display("RESULT     = TEST FAILED");
+
+        $display("==============================================");
+        $display("");
+
+    endtask
+
+endclass
+
+
+
+//============================================================
+// ENVIRONMENT
+//============================================================
+class environment;
+
+    generator  gen;
+    driver     drv;
+    monitor    mon;
+    scoreboard scb;
+
+
+    //========================================================
+    // CONSTRUCTOR
+    // IMPORTANT:
+    // Do NOT call gen.run() here
+    //========================================================
+    function new(
+        virtual apb_if vif
+    );
+
+        this.gen = new();
+        this.drv = new(vif);
+        this.mon = new(vif);
+        this.scb = new();
+
+    endfunction
+
+
+    //========================================================
+    // RUN ENVIRONMENT
+    //========================================================
+    task run();
+
+        //====================================================
+        // Generate transactions
+        // This is a TASK, so it is legal here
+        //====================================================
+        gen.run();
+
+
+        //====================================================
+        // Copy generated transactions to driver
+        //====================================================
+        foreach (gen.gen_queue[i])
+            drv.gen_queue.push_back(gen.gen_queue[i]);
+
+
+        //====================================================
+        // RESET
+        //====================================================
+        drv.reset();
+
+
+        //====================================================
+        // RUN MONITOR AND DRIVER
+        //====================================================
+        fork
+
+            mon.run();
+
+            drv.run();
+
+        join_none
+
+
+        //====================================================
+        // Wait for driver to finish
+        //====================================================
+        #250;
+
+
+        //====================================================
+        // SCOREBOARD
+        //====================================================
+        scb.run(mon.mon_queue);
+
+    endtask
+
+endclass
+
+
+
+//============================================================
+// TEST
+//============================================================
+class test;
+
+    environment env;
+
+
+    //========================================================
+    // CONSTRUCTOR
+    //========================================================
+    function new(
+        virtual apb_if vif
+    );
+
+        this.env = new(vif);
+
+    endfunction
+
+
+    //========================================================
+    // RUN TEST
+    //========================================================
+    task run();
+
+        env.run();
+
+    endtask
+
+endclass
+
+
+
+//============================================================
+// TOP-LEVEL TESTBENCH
+//============================================================
+module tb;
+
+    logic pclk;
+
+
+    //========================================================
+    // CLOCK
+    //========================================================
+    initial begin
+
+        pclk = 1'b0;
+
+        forever #5 pclk = ~pclk;
+
+    end
+
+
+    //========================================================
+    // APB INTERFACE
+    //========================================================
+    apb_if apb(pclk);
+
+
+    //========================================================
+    // DUT
+    //
+    // IMPORTANT:
+    // The DUT is NOT written here.
+    //
+    // Your apb_slave module should be in design.sv
+    //========================================================
+    apb_slave DUT (
+
+        .pclk    (pclk),
+        .presetn (apb.presetn),
+
+        .paddr   (apb.paddr),
+        .psel    (apb.psel),
+        .penable (apb.penable),
+        .pwrite  (apb.pwrite),
+        .pwdata  (apb.pwdata),
+
+        .prdata  (apb.prdata),
+        .pready  (apb.pready),
+        .pslverr (apb.pslverr)
+
+    );
+
+
+    //========================================================
+    // TEST OBJECT
+    //========================================================
+    test t;
+
+
+    //========================================================
+    // START TEST
+    //========================================================
+    initial begin
+
+        t = new(apb);
+
+        t.run();
+
+    end
+
+
+    //========================================================
+    // WAVEFORM
+    //========================================================
+    initial begin
+
+        $dumpfile("apb_waveform.vcd");
+        $dumpvars(0, tb);
+
+    end
+
+
+    //========================================================
+    // END SIMULATION
+    //========================================================
+    initial begin
+
+        #500;
+
+        $display("");
+        $display("==============================================");
+        $display("        APB SIMULATION FINISHED");
+        $display("==============================================");
+        $display("");
+
+        $finish;
+
+    end
+
+endmodule
